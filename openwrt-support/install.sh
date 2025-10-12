@@ -165,7 +165,7 @@ main() {
     # 定义要下载的包
     MAIN_PACKAGE="rtp2httpd_${VERSION_NUM}-1_${ARCH}.ipk"
     LUCI_PACKAGE="luci-app-rtp2httpd_${VERSION_NUM}_all.ipk"
-    I18N_EN_PACKAGE="luci-i18n-rtp2httpd-en_${VERSION_NUM}_all.ipk"
+    # I18N_EN_PACKAGE="luci-i18n-rtp2httpd-en_${VERSION_NUM}_all.ipk"
     I18N_ZH_CN_PACKAGE="luci-i18n-rtp2httpd-zh-cn_${VERSION_NUM}_all.ipk"
 
     # 下载所有包
@@ -173,7 +173,7 @@ main() {
     print_info "开始下载软件包..."
     print_info "=========================================="
 
-    PACKAGES="$MAIN_PACKAGE $LUCI_PACKAGE $I18N_EN_PACKAGE $I18N_ZH_CN_PACKAGE"
+    PACKAGES="$MAIN_PACKAGE $LUCI_PACKAGE $I18N_ZH_CN_PACKAGE"
     DOWNLOAD_SUCCESS=true
 
     for package in $PACKAGES; do
