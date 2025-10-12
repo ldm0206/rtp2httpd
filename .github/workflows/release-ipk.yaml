@@ -44,7 +44,7 @@ jobs:
           - mipsel_mips32
           - powerpc_8548
         sdk:
-          - "22.03.6"
+          - "23.05.0"
 
     steps:
       - uses: actions/checkout@v4
