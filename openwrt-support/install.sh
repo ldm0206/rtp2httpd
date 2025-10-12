@@ -11,7 +11,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # GitHub 仓库信息
-REPO_OWNER="stackia"
+REPO_OWNER="ldm0206"
 REPO_NAME="rtp2httpd"
 GITHUB_API="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}"
 GITHUB_RELEASE="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download"
