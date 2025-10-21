@@ -8,7 +8,7 @@
 #include "rtp2httpd.h"
 
 /* Forward declarations */
-struct connection_s;
+typedef struct connection_s connection_t;
 
 /* Maximum number of clients we can track in shared memory */
 #define STATUS_MAX_CLIENTS 256
@@ -27,7 +27,7 @@ typedef enum
 #define STATUS_MAX_LOG_ENTRIES 100
 #define STATUS_LOG_ENTRY_LEN 1024
 
-#define SSE_BUFFER_SIZE 131072 /* 128k */
+#define SSE_BUFFER_SIZE 262144 /* 256k */
 
 /* Client state types for status display */
 typedef enum
@@ -65,6 +65,7 @@ typedef struct
 {
   int active;                        /* 1 if slot is active, 0 if free */
   pid_t worker_pid;                  /* Actual worker thread/process PID */
+  int worker_index;                  /* Worker index (0-based, matches worker_id) */
   int64_t connect_time;              /* Connection timestamp in milliseconds */
   char client_addr[64];              /* Client IP address */
   char client_port[16];              /* Client port */
@@ -73,6 +74,15 @@ typedef struct
   uint64_t bytes_sent;               /* Total bytes sent to client */
   uint32_t current_bandwidth;        /* Current bandwidth in bytes/sec */
   volatile int disconnect_requested; /* Set to 1 when disconnect is requested from API */
+  size_t queue_bytes;                /* Current queued bytes */
+  uint32_t queue_buffers;            /* Current queued buffers */
+  size_t queue_limit_bytes;          /* Dynamic queue limit snapshot */
+  size_t queue_bytes_highwater;      /* Peak queued bytes */
+  uint32_t queue_buffers_highwater;  /* Peak queued buffers */
+  uint64_t dropped_packets;          /* Total dropped packets */
+  uint64_t dropped_bytes;            /* Total dropped bytes */
+  uint32_t backpressure_events;      /* Times backpressure triggered */
+  int slow_active;
 } client_stats_t;
 
 /* Log entry structure for circular buffer */
@@ -90,6 +100,11 @@ typedef struct
  */
 typedef struct
 {
+  pid_t worker_pid; /* Worker process PID */
+
+  /* Client traffic statistics */
+  uint64_t client_bytes_cumulative; /* Bytes sent to clients that have disconnected */
+
   /* Zero-copy send statistics */
   uint64_t total_sends;       /* Total number of sendmsg() calls */
   uint64_t total_completions; /* Total MSG_ZEROCOPY completions */
@@ -106,6 +121,14 @@ typedef struct
   uint64_t pool_expansions;    /* Number of times pool expanded */
   uint64_t pool_exhaustions;   /* Number of times pool was exhausted */
   uint64_t pool_shrinks;       /* Number of times pool shrank */
+
+  /* Control/API buffer pool statistics */
+  uint64_t control_pool_total_buffers;
+  uint64_t control_pool_free_buffers;
+  uint64_t control_pool_max_buffers;
+  uint64_t control_pool_expansions;
+  uint64_t control_pool_exhaustions;
+  uint64_t control_pool_shrinks;
 } worker_stats_t;
 
 /* Shared memory structure for status information */
@@ -113,7 +136,7 @@ typedef struct
 {
   /* Global statistics */
   int total_clients;
-  uint64_t total_bytes_sent;
+  uint64_t total_bytes_sent_cumulative; /* Bytes sent to clients that have disconnected */
   uint32_t total_bandwidth;
   int64_t server_start_time; /* Server start time in milliseconds */
 
@@ -197,6 +220,17 @@ void status_update_client_bytes(int status_index, uint64_t bytes_sent, uint32_t 
  */
 void status_update_client_state(int status_index, client_state_type_t state);
 
+void status_update_client_queue(int status_index,
+                                size_t queue_bytes,
+                                size_t queue_buffers,
+                                size_t queue_limit_bytes,
+                                size_t queue_bytes_highwater,
+                                size_t queue_buffers_highwater,
+                                uint64_t dropped_packets,
+                                uint64_t dropped_bytes,
+                                uint32_t backpressure_events,
+                                int slow_active);
+
 /**
  * Add log entry to circular buffer
  * Called by logger function to store logs for status page
@@ -210,22 +244,22 @@ void status_add_log_entry(enum loglevel level, const char *message);
  * Serves the HTML/CSS/JavaScript status page
  * @param c Connection object
  */
-void handle_status_page(struct connection_s *c);
+void handle_status_page(connection_t *c);
 
 /**
  * Handle API request to disconnect a client
- * RESTful: POST/DELETE /api/disconnect with form data body "client_id=123"
+ * RESTful: POST/DELETE <status-path>/api/disconnect with form data body "client_id=123"
  * Sets disconnect flag in shared memory and notifies worker to close connection
  * @param c Connection object
  */
-void handle_disconnect_client(struct connection_s *c);
+void handle_disconnect_client(connection_t *c);
 
 /**
  * Handle API request to change log level
- * RESTful: PUT/PATCH /api/loglevel with form data body "level=2"
+ * RESTful: PUT/PATCH <status-path>/api/log-level with form data body "level=2"
  * @param c Connection object
  */
-void handle_set_log_level(struct connection_s *c);
+void handle_set_log_level(connection_t *c);
 
 /**
  * Get the notification pipe read fd for current worker (called after fork)
@@ -271,7 +305,7 @@ int status_build_sse_json(char *buffer, size_t buffer_capacity,
  * @param c Connection object
  * @return 0 on success, -1 on error
  */
-int status_handle_sse_init(struct connection_s *c);
+int status_handle_sse_init(connection_t *c);
 
 /**
  * Handle SSE notification event
@@ -280,7 +314,7 @@ int status_handle_sse_init(struct connection_s *c);
  * @param conn_head Head of connection list
  * @return Number of connections updated
  */
-int status_handle_sse_notification(struct connection_s *conn_head);
+int status_handle_sse_notification(connection_t *conn_head);
 
 /**
  * Handle SSE heartbeat for a connection
@@ -292,13 +326,6 @@ int status_handle_sse_notification(struct connection_s *conn_head);
  * @param now Current timestamp in milliseconds
  * @return 0 if processed, -1 if not needed
  */
-int status_handle_sse_heartbeat(struct connection_s *c, int64_t now);
-
-/**
- * Get aggregated worker statistics from all workers
- * This function aggregates per-worker statistics from shared memory
- * @param stats Output: pointer to worker_stats_t structure to fill
- */
-void status_get_worker_stats(worker_stats_t *stats);
+int status_handle_sse_heartbeat(connection_t *c, int64_t now);
 
 #endif /* __STATUS_H__ */
